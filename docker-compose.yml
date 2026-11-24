@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: checkstock_db
+    environment:
+      POSTGRES_USER: checkstock
+      POSTGRES_PASSWORD: checkstock_password
+      POSTGRES_DB: checkstock
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checkstock -d checkstock"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: checkstock_web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://checkstock:checkstock_password@db:5432/checkstock
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:

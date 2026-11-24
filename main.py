@@ -2,12 +2,13 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from types import SimpleNamespace
 from typing import AsyncIterator
 
 import uvicorn
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import (
     Boolean,
@@ -34,7 +35,6 @@ templates_dir = os.path.join(CURRENT_DIR, "templates")
 TEMPLATES_DIR = templates_dir if os.path.isdir(templates_dir) else CURRENT_DIR
 
 DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
 engine = create_async_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
@@ -43,8 +43,6 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 Base = declarative_base()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Защищает операции с остатками от одновременного изменения
-# внутри одного процесса приложения.
 inventory_lock = asyncio.Lock()
 
 FF_WAREHOUSE_IDS = {1, 2}
@@ -52,8 +50,6 @@ FBO_WAREHOUSE_IDS = {3, 4, 5}
 FBS_WAREHOUSE_IDS = {7, 8, 9}
 MARKETPLACE_WAREHOUSE_IDS = FBO_WAREHOUSE_IDS | FBS_WAREHOUSE_IDS
 
-# ID FBS и FBO одного маркетплейса приводятся к общему ID
-# только для отображения в таблице.
 MARKETPLACE_DISPLAY_IDS = {
     3: 3,
     7: 3,
@@ -224,7 +220,6 @@ async def lifespan(app: FastAPI):
             select(func.count()).select_from(Warehouse)
         )
 
-        # Начальные данные добавляются только в пустую базу.
         if not warehouse_count:
             session.add_all(
                 [
@@ -273,6 +268,45 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CheckStock", lifespan=lifespan)
 
+# Журнал хранится только в памяти и очищается при перезапуске.
+movement_log: list[str] = []
+
+
+def record_movement(
+    *,
+    operation: str,
+    source: str,
+    destination: str,
+    sku: str,
+    name: str,
+    quantity: int,
+) -> None:
+    timestamp = datetime.now().astimezone().strftime(
+        "%Y-%m-%d %H:%M:%S %Z"
+    )
+    line = (
+        f"{timestamp} | {operation} | "
+        f"{sku} — {name} | {quantity} шт. | "
+        f"{source} -> {destination}"
+    )
+    movement_log.append(line)
+    print(line, flush=True)
+
+
+@app.get("/stock/movements.txt")
+async def download_movement_log():
+    content = "\n".join(movement_log)
+
+    if not content:
+        content = "С начала текущего запуска движений товара не было."
+
+    return PlainTextResponse(
+        content=content,
+        headers={
+            "Content-Disposition": 'attachment; filename="movement_log.txt"'
+        },
+    )
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index_endpoint(
@@ -282,7 +316,6 @@ async def index_endpoint(
     stock_result = await db.execute(select(Stock).order_by(Stock.id))
     stocks_list = stock_result.scalars().all()
 
-    # Считаем FBS-резерв по исходному FF до группировки отображения.
     reserved_map: dict[tuple[int, str], int] = {}
     for stock in stocks_list:
         if stock.warehouse_id in FBS_WAREHOUSE_IDS:
@@ -302,8 +335,6 @@ async def index_endpoint(
         else:
             stock.available_qty = 0
 
-    # Объединяем строки FBS/FBO одного маркетплейса и SKU
-    # только для отображения. Записи в базе не меняются.
     display_stocks = []
     marketplace_rows = {}
 
@@ -402,7 +433,6 @@ async def income_endpoint(
                 "Склад-источник не найден или отключён!"
             )
 
-    # Сохраняем правило: один SKU соответствует одному названию товара.
     identity_result = await db.execute(
         select(Stock.sku, Stock.name).order_by(Stock.id)
     )
@@ -463,7 +493,6 @@ async def income_endpoint(
     marketplace_allocations: list[tuple[Stock, int]] = []
 
     if from_warehouse_id in FF_WAREHOUSE_IDS:
-        # Перенос между FF: нельзя расходовать занятый FBS-резерв.
         source_result = await db.execute(
             select(Stock).where(
                 Stock.warehouse_id == from_warehouse_id,
@@ -497,8 +526,6 @@ async def income_endpoint(
             )
 
     elif from_warehouse_id in MARKETPLACE_WAREHOUSE_IDS:
-        # FBS-резерв и FBO-товар в пути выбираются строго
-        # из соответствующего канала.
         is_fbs = from_warehouse_id in FBS_WAREHOUSE_IDS
         quantity_column = Stock.reserved_qty if is_fbs else Stock.transit_qty
 
@@ -529,7 +556,6 @@ async def income_endpoint(
                 f"В пути: {market_total} шт."
             )
 
-        # Списываем количество по строкам по порядку.
         remaining = quantity
         for market_stock in market_stocks:
             current_qty = (
@@ -547,7 +573,6 @@ async def income_endpoint(
                 break
 
         if is_fbs:
-            # При возврате FBS на другой FF проверяем исходный остаток.
             for market_stock, take in marketplace_allocations:
                 origin_ff_id = market_stock.source_ff_id
 
@@ -584,25 +609,19 @@ async def income_endpoint(
     )
 
     if from_warehouse_id == 0:
-        # Приход от поставщика.
         target_stock.physical_qty += quantity
 
     elif from_warehouse_id in FF_WAREHOUSE_IDS:
-        # Перемещение между FF.
         source_ff_stock.physical_qty -= quantity
         target_stock.physical_qty += quantity
 
     elif from_warehouse_id in FBO_WAREHOUSE_IDS:
-        # Возврат FBO: уменьшаем товар в пути
-        # и приходуем его на выбранный FF.
         for market_stock, take in marketplace_allocations:
             market_stock.transit_qty -= take
 
         target_stock.physical_qty += quantity
 
     else:
-        # Возврат FBS: снимаем резерв.
-        # При выборе другого FF переносим туда физический остаток.
         for market_stock, take in marketplace_allocations:
             market_stock.reserved_qty -= take
             origin_ff_id = market_stock.source_ff_id
@@ -620,8 +639,6 @@ async def income_endpoint(
                 origin_stock.physical_qty -= take
                 target_stock.physical_qty += take
 
-        # При возврате на исходный FF физический остаток не меняется.
-
     try:
         await db.commit()
     except IntegrityError:
@@ -630,6 +647,28 @@ async def income_endpoint(
             "Не удалось сохранить приход. "
             "Обновите страницу и повторите операцию."
         )
+
+    if from_warehouse_id == 0:
+        operation = "Приход от поставщика"
+        source_name = "Поставщик"
+    elif from_warehouse_id in FF_WAREHOUSE_IDS:
+        operation = "Перемещение между FF"
+        source_name = source_warehouse.name
+    elif from_warehouse_id in FBO_WAREHOUSE_IDS:
+        operation = "Возврат FBO"
+        source_name = source_warehouse.name
+    else:
+        operation = "Возврат FBS"
+        source_name = source_warehouse.name
+
+    record_movement(
+        operation=operation,
+        source=source_name,
+        destination=target_warehouse.name,
+        sku=sku,
+        name=clean_name,
+        quantity=quantity,
+    )
 
     return alert_redirect()
 
@@ -669,7 +708,6 @@ async def transfer_endpoint(
             "Склад-получатель не найден или отключён!"
         )
 
-    # Сначала проверяем, есть ли артикул на складе отправления.
     source_result = await db.execute(
         select(Stock).where(
             Stock.warehouse_id == from_warehouse_id,
@@ -681,16 +719,14 @@ async def transfer_endpoint(
 
     if source_stock is None:
         return alert_redirect(
-      "Такого товара с таким артикулом не существует!"
+            "Такого товара с таким артикулом не существует!"
         )
 
-    # Проверяем совпадение складов после проверки артикула.
     if from_warehouse_id == to_warehouse_id:
         return alert_redirect(
             "Склады отправления и назначения совпадают!"
         )
 
-    # Учитываем все действующие FBS-резервы этого FF.
     reserved_result = await db.execute(
         select(
             func.coalesce(func.sum(Stock.reserved_qty), 0)
@@ -733,19 +769,14 @@ async def transfer_endpoint(
     )
 
     if operation_type == "FF":
-        # Перемещение между физическими складами FF.
         source_stock.physical_qty -= quantity
         target_stock.physical_qty += quantity
 
     elif operation_type == "FBO":
-        # FBO: списываем физический остаток FF,
-        # количество появляется в FBO-товаре в пути.
         source_stock.physical_qty -= quantity
         target_stock.transit_qty += quantity
 
     else:
-        # FBS: товар остаётся физически на исходном FF,
-        # но резервируется в отдельной строке FBS.
         target_stock.reserved_qty += quantity
 
     try:
@@ -756,6 +787,15 @@ async def transfer_endpoint(
             "Не удалось сохранить перенос. "
             "Обновите страницу и повторите операцию."
         )
+
+    record_movement(
+        operation=f"Отгрузка {operation_type}",
+        source=source_warehouse.name,
+        destination=target_warehouse.name,
+        sku=sku,
+        name=source_stock.name,
+        quantity=quantity,
+    )
 
     return alert_redirect()
 

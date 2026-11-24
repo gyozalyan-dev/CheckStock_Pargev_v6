@@ -2,49 +2,71 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CheckStock — Оперативный учёт</title>
-           <style>
+
+    <style>
         * { box-sizing: border-box; }
 
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            background-color: #0b0d10; /* оставь свой текущий тёмный фон */
+            background-color: #0b0d10;
             color: #333;
             margin: 0;
             padding: 12px 14px;
             font-size: 12px;
-            min-height: 100vh;         /* Вся высота экрана */
-            display: flex;             /* Включаем центрирование */
-            align-items: center;       /* Центрируем ровно по вертикали */
-            justify-content: center;   /* Центрируем ровно по горизонтали */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .container { width: 100%; max-width: 1030px; margin: 0 auto; }
 
-        /* Компактная шапка */
         .header {
             background: linear-gradient(135deg, #1e3c72, #2a5298);
             color: white;
             padding: 10px 16px;
-            border-radius: 6px 6px 0 0; /* Закругление только сверху */
-            margin-bottom: 0;           /* Было 12px -> ставим 0 */
+            border-radius: 6px 6px 0 0;
+            margin-bottom: 0;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 12px;
         }
 
         .header h2 { margin: 0; font-size: 16px; }
         .header p { margin: 0; opacity: 0.85; font-size: 11.5px; }
 
-        /* 3 колонки бок о бок */
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .movement-link {
+            display: inline-block;
+            padding: 7px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.65);
+            border-radius: 4px;
+            color: white;
+            text-decoration: none;
+            font-size: 11.5px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .movement-link:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
         .workspace {
             display: grid;
             grid-template-columns: 540px 245px 245px;
             justify-content: center;
-            gap: 0;                     /* Было 10px -> ставим 0 */
+            gap: 0;
             align-items: stretch;
         }
-
 
         .card {
             background: #dddccc;
@@ -55,6 +77,7 @@
             flex-direction: column;
             min-width: 0;
         }
+
         .card h4 {
             margin: 0 0 10px 0;
             color: #222;
@@ -63,13 +86,13 @@
             padding-bottom: 6px;
         }
 
-        /* Строгая сетка таблицы */
         table {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
             font-size: 11.5px;
         }
+
         th {
             padding: 6px 5px;
             background-color: #f8f9fa;
@@ -79,6 +102,7 @@
             border-bottom: 1px solid #e3e7ed;
             white-space: nowrap;
         }
+
         td {
             padding: 11px 5px;
             border-bottom: 1px solid #eef2f5;
@@ -86,6 +110,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+
         .num { text-align: right; }
         .txt { text-align: left; }
         .fw-bold { font-weight: 700; }
@@ -93,7 +118,6 @@
         .text-success { color: #27ae60; font-weight: 700; }
         .text-fbo { color: #2980b9; font-weight: 700; }
 
-        /* Скролл-бокс таблицы вровень с низом обеих кнопок */
         .scroll-box {
             height: 292px;
             max-height: 292px;
@@ -103,7 +127,6 @@
             border-radius: 0 0 4px 4px;
         }
 
-        /* Абсолютно идентичные зазоры и высоты для ОБЕИХ форм */
         .card form {
             display: flex;
             flex-direction: column;
@@ -111,10 +134,12 @@
             gap: 8px;
             margin: 0;
         }
+
         .form-group {
             margin: 0;
             padding: 0;
         }
+
         .form-group label {
             display: block;
             height: 16px;
@@ -124,6 +149,7 @@
             font-size: 11.5px;
             font-weight: 500;
         }
+
         .form-control, .form-select {
             display: block;
             width: 100%;
@@ -136,6 +162,7 @@
             font-size: 12px;
             background-color: #fff;
         }
+
         .form-control:focus, .form-select:focus {
             border-color: #2a5298;
             outline: none;
@@ -155,45 +182,51 @@
             font-size: 12px;
             cursor: pointer;
         }
+
         .btn-success { background-color: #27a560; }
         .btn-success:hover { background-color: #219653; }
         .btn-primary { background-color: #2980b9; }
         .btn-primary:hover { background-color: #2471a3; }
+
+        @media (max-width: 1050px) {
+            body {
+                align-items: flex-start;
+            }
+
+            .workspace {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 10px;
+            }
+
+            .header {
+                flex-wrap: wrap;
+            }
+
+            .header-info {
+                flex-wrap: wrap;
+            }
+        }
     </style>
-
 </head>
-
-<script>
-  const operationForms = document.querySelectorAll(
-    'form[action="/stock/income"], form[action="/stock/transfer"]'
-  );
-
-  operationForms.forEach((form) => {
-    form.addEventListener("submit", () => {
-      // Даём браузеру отправить значения формы, затем очищаем поля.
-      setTimeout(() => form.reset(), 0);
-    });
-  });
-
-  // При возвращении или обновлении страницы не восстанавливаем
-  // значения предыдущей операции.
-  window.addEventListener("pageshow", () => {
-    operationForms.forEach((form) => form.reset());
-  });
-</script>
 
 <body>
 <div class="container">
 
     <div class="header">
         <h2>CheckStock — Где сейчас товар?</h2>
-        <p>Оперативный учёт остатков (ФФ), резервов FBS и товаров в пути (FBO)</p>
+        <div class="header-info">
+            <p>Оперативный учёт остатков (ФФ), резервов FBS и товаров в пути (FBO)</p>
+            <a class="movement-link" href="/stock/movements.txt">
+                Скачать журнал движений
+            </a>
+        </div>
     </div>
 
     <div class="workspace">
         <!-- КОЛОНКА 1: ТАБЛИЦА ОСТАТКОВ -->
         <div class="card">
             <h4>1. Остатки товаров на складах</h4>
+
             <div style="padding-right: 19px; background-color: #f8f9fa; border-top: 1px solid #e3e7ed; border-bottom: 1px solid #e3e7ed;">
                 <table style="border: none;">
                     <thead>
@@ -242,6 +275,7 @@
         <!-- КОЛОНКА 2: ПРИХОД / ВОЗВРАТ -->
         <div class="card">
             <h4>2. Приход / возврат</h4>
+
             <form action="/stock/income" method="post">
                 <div class="form-group">
                     <label>Откуда:</label>
@@ -257,6 +291,7 @@
                         <option value="9">Я.Маркет (FBS)</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <label>Куда (Склад ФФ):</label>
                     <select class="form-select" name="warehouse_id">
@@ -264,24 +299,30 @@
                         <option value="2">Юг</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <label>Артикул / SKU:</label>
                     <input type="text" class="form-control" name="sku" placeholder="SKU-104" required>
                 </div>
+
                 <div class="form-group">
                     <label>Наименование:</label>
                     <input type="text" class="form-control" name="name" placeholder="Название товара">
                 </div>
+
                 <div class="form-group">
                     <label>Количество (шт.):</label>
                     <input type="number" class="form-control" name="quantity" value="1" min="1" required>
                 </div>
+
                 <button type="submit" class="btn btn-success">Оформить приход</button>
             </form>
         </div>
+
         <!-- КОЛОНКА 3: РАСХОД / ПЕРЕНОС -->
         <div class="card">
             <h4>3. Расход / перенос</h4>
+
             <form action="/stock/transfer" method="post">
                 <div class="form-group">
                     <label>Откуда (Склад ФФ):</label>
@@ -290,6 +331,7 @@
                         <option value="2">Юг</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <label>Куда:</label>
                     <select class="form-select" name="to_warehouse_id">
@@ -303,10 +345,12 @@
                         <option value="9">Я.Маркет (FBS)</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <label>Артикул / SKU:</label>
                     <input type="text" class="form-control" name="sku" placeholder="SKU-108" required>
                 </div>
+
                 <div class="form-group">
                     <label>Наименование:</label>
                     <input type="text" class="form-control" id="transfer_name" placeholder="Автоподстановка" readonly style="background-color: #f8f9fa; color: #555;">
@@ -316,15 +360,31 @@
                     <label>Количество (шт.):</label>
                     <input type="number" class="form-control" name="quantity" value="1" min="1" required>
                 </div>
+
                 <button type="submit" class="btn btn-primary">Оформить расход</button>
             </form>
         </div>
     </div>
-
 </div>
 
 <script>
 (function () {
+    const operationForms = document.querySelectorAll(
+        'form[action="/stock/income"], form[action="/stock/transfer"]'
+    );
+
+    operationForms.forEach((form) => {
+        form.addEventListener("submit", () => {
+            // Отправка формы начинается до очистки её полей.
+            setTimeout(() => form.reset(), 0);
+        });
+    });
+
+    // Не восстанавливаем введённые значения после возврата на страницу.
+    window.addEventListener("pageshow", () => {
+        operationForms.forEach((form) => form.reset());
+    });
+
     const skuMap = {};
     {% for s in stocks %}
         skuMap[{{ s.sku.strip().upper() | tojson }}] = {{ s.name | tojson }};
@@ -333,18 +393,24 @@
     function findProductName(rawValue) {
         const raw = rawValue.trim().toUpperCase();
         if (!raw) return "";
-        const noPrefix = raw.startsWith("SKU") ? raw.slice(3).replace(/^-+/, "") : raw;
+
+        const noPrefix = raw.startsWith("SKU")
+            ? raw.slice(3).replace(/^-+/, "")
+            : raw;
+
         return skuMap[raw] || skuMap["SKU-" + noPrefix] || "";
     }
 
-    // 1. Автоподстановка и блокировка в форме прихода
+    // Автоподстановка названия в форме прихода.
     const incomeForm = document.querySelector('form[action="/stock/income"]');
     if (incomeForm) {
         const skuInput = incomeForm.querySelector('input[name="sku"]');
         const nameInput = incomeForm.querySelector('input[name="name"]');
+
         if (skuInput && nameInput) {
             const syncIncome = () => {
                 const matched = findProductName(skuInput.value);
+
                 if (matched) {
                     nameInput.value = matched;
                     nameInput.readOnly = true;
@@ -355,25 +421,31 @@
                     nameInput.style.backgroundColor = "";
                 }
             };
+
             skuInput.addEventListener("input", syncIncome);
             skuInput.addEventListener("change", syncIncome);
         }
     }
 
-    // 2. Автоподстановка в форме расхода / переноса
+    // Автоподстановка названия в форме расхода / переноса.
     const transferForm = document.querySelector('form[action="/stock/transfer"]');
     if (transferForm) {
         const skuTransfer = transferForm.querySelector('input[name="sku"]');
         const nameTransfer = document.getElementById("transfer_name");
+
         if (skuTransfer && nameTransfer) {
             const syncTransfer = () => {
                 const matched = findProductName(skuTransfer.value);
                 nameTransfer.value = matched;
-                nameTransfer.style.backgroundColor = matched ? "#e9ecef" : "#f8f9fa";
+                nameTransfer.style.backgroundColor =
+                    matched ? "#e9ecef" : "#f8f9fa";
             };
+
             skuTransfer.addEventListener("input", syncTransfer);
             skuTransfer.addEventListener("change", syncTransfer);
         }
     }
 })();
 </script>
+</body>
+</html>
